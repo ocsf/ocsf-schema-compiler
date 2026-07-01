@@ -47,6 +47,8 @@ compiler = SchemaCompiler(Path("path/to/ocsf-schema"))
 output = compiler.compile()
 ```
 
+The returned `compile_version` 1 structure is documented in [Compiled schema format](docs/format.md).
+
 See [`ocsf_schema_compiler.__main__`](https://github.com/ocsf/ocsf-schema-compiler/blob/main/src/ocsf_schema_compiler/__main__.py) for a working example.
 
 ## Developing ocsf-schema-compiler
