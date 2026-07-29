@@ -55,7 +55,7 @@ source ./.venv/bin/activate
 # Running tests before installing anything ensure this remains true
 make tests
 
-python -m pip install basedpyright ruff flit
+python -m pip install ".[dev]" flit
 make lint
 make build-check
 ```

@@ -87,11 +87,13 @@ python3 -m venv .venv
 source ./.venv/bin/activate
 
 # Install the tools
-python -m pip install basedpyright ruff
+python -m pip install ".[dev]"
 
 # Now the lint target will work
 make lint
 ```
+
+The `dev` extra pins basedpyright and Ruff to a minor version so that local linting matches continuous integration. Both tools add and promote rules in minor releases, which can otherwise fail the lint job on unchanged code. Raise the bounds in [`pyproject.toml`](https://github.com/ocsf/ocsf-schema-compiler/blob/main/pyproject.toml) deliberately, along with any resulting lint fixes.
 
 Also, with a virtual environment, a local install can be used to run the compiler.
 ```shell

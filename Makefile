@@ -9,17 +9,19 @@ pip-update:
 	# Update Python
 	python3 -m venv --upgrade .venv
 	# Install or update all development time pip dependencies
-	python -m pip install -U basedpyright ruff flit
+	# basedpyright and ruff are pinned in pyproject.toml's "dev" extra so that
+	# local linting matches continuous integration
+	python -m pip install -U ".[dev]" flit
 
 lint:
 	@./scripts/ensure-venv.sh
-	# Requires ruff and basedpyright: python -m pip install basedpyright ruff
+	# Requires ruff and basedpyright: python -m pip install ".[dev]"
 	ruff check
 	basedpyright
 	ruff format --check --diff
 
 lint-github:
-	# Requires ruff and basedpyright: python -m pip install basedpyright ruff
+	# Requires ruff and basedpyright: python -m pip install ".[dev]"
 	ruff check --output-format=github
 	basedpyright
 	ruff format --check --diff

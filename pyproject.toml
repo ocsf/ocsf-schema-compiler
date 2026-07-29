@@ -32,8 +32,12 @@ Issues = "https://github.com/ocsf/ocsf-schema-compiler/issues"
 [project.scripts]
 ocsf-schema-compiler = "ocsf_schema_compiler.__main__:main"
 
+# Development tool versions are pinned to a minor version so that continuous
+# integration is reproducible. Ruff and basedpyright add and promote rules in minor
+# releases, which would otherwise fail the lint job on unchanged code. Raise these
+# bounds deliberately, along with any resulting lint fixes.
 [project.optional-dependencies]
-dev = ["basedpyright", "ruff"]
+dev = ["basedpyright ~= 1.39.9", "ruff ~= 0.15.20"]
 
 # This project uses basedpyright rather than pyright. This is for two reasons:
 #   1. I uses vscodium, and the M$ proprietary PyLance extension does not work in
