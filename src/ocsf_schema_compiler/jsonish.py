@@ -136,20 +136,21 @@ def deep_merge(dest: JObject, source: JObject) -> None:
 
 def get_in(o: JObject, *keys: str) -> JValue:
     v: JValue = None
-    i = 0
     key_count = len(keys)
-    for k in keys:
-        i += 1
+    # stop_i is the top index for current array slice of keys, so starts at 1
+    for stop_i, k in enumerate(keys, 1):
         if k in o:
             v = o[k]
         else:
-            raise KeyNotMappedException(f'Key "{".".join(keys[:i])}" is not mapped')
-        if i < key_count:
+            raise KeyNotMappedException(
+                f'Key "{".".join(keys[:stop_i])}" is not mapped'
+            )
+        if stop_i < key_count:
             if isinstance(v, dict):
                 o = j_object(v)
             else:
                 raise IncorrectTypeException(
-                    f'Expected value of key "{".".join(keys[:i])}" to be an object'
+                    f'Expected value of key "{".".join(keys[:stop_i])}" to be an object'
                     f" but got {json_type_from_value(v)}"
                 )
     return v

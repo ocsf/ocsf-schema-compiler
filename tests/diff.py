@@ -1,7 +1,7 @@
 import json
+from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass
-from typing import Callable
 
 from ocsf_schema_compiler.jsonish import JObject, JValue
 

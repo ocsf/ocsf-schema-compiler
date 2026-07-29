@@ -5,12 +5,13 @@ from sys import stderr
 from typing import override
 
 from diff import (  # pyright: ignore[reportImplicitRelativeImport]
+    MISSING,
+    DiffDictKeys,
+    DiffValue,
     diff_objects,
     formatted_diffs,
-    DiffValue,
-    DiffDictKeys,
-    MISSING,
 )
+
 from ocsf_schema_compiler.compiler import SchemaCompiler
 from ocsf_schema_compiler.exceptions import SchemaException
 from ocsf_schema_compiler.jsonish import JObject, get_in
@@ -368,17 +369,14 @@ def legacy_aws_diff_callback(
         # This compiler does not needlessly set object and class "profiles" to null
         return True
 
-    if (
+    # Same as above but now we are at the "objects.<object-name>.profiles" level
+    return (
         key == "profiles"
         and len(path) == 3
         and path[0] == "objects"
         and left_diff == MISSING
         and right_diff is None
-    ):
-        # Same as above but now we are at the "objects.<object-name>.profiles" level
-        return True
-
-    return False
+    )
 
 
 if __name__ == "__main__":

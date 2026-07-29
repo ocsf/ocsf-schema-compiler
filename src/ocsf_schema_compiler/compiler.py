@@ -1,39 +1,33 @@
 import logging
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, override
+from typing import override
 
 from ocsf_schema_compiler.exceptions import SchemaException
 from ocsf_schema_compiler.jsonish import (
-    JValue,
-    JObject,
     JArray,
-    j_object,
-    j_object_optional,
+    JObject,
+    JValue,
+    deep_copy_j_array,
+    deep_copy_j_object,
+    deep_merge,
     j_array,
     j_array_optional,
+    j_integer,
+    j_object,
+    j_object_optional,
     j_string,
     j_string_optional,
-    j_integer,
     json_type_from_value,
-    deep_copy_j_object,
-    deep_copy_j_array,
-    deep_merge,
     put_non_none,
 )
 from ocsf_schema_compiler.ocsf_utils import (
     is_hidden_class,
     is_hidden_object,
-    requirement_to_rank,
     rank_to_requirement,
-)
-from ocsf_schema_compiler.scoping import (
-    extension_scoped_category_uid,
-    category_scoped_class_uid,
-    class_uid_scoped_type_uid,
-    to_extension_scoped_name,
-    full_name,
+    requirement_to_rank,
 )
 from ocsf_schema_compiler.schema_structure import (
     category_definitions,
@@ -45,13 +39,19 @@ from ocsf_schema_compiler.schema_structure import (
     normalize_item,
     normalize_items,
 )
+from ocsf_schema_compiler.scoping import (
+    category_scoped_class_uid,
+    class_uid_scoped_type_uid,
+    extension_scoped_category_uid,
+    full_name,
+    to_extension_scoped_name,
+)
 from ocsf_schema_compiler.structured_read import (
     read_json_object_file,
-    read_structured_items,
     read_patchable_structured_items,
+    read_structured_items,
 )
 from ocsf_schema_compiler.utils import pretty_json_encode
-
 
 logger = logging.getLogger(__name__)
 
@@ -333,7 +333,7 @@ class SchemaCompiler:
         for profile_name, profile in self._profiles.items():
             profile = j_object(profile)
             profile_attributes = item_attributes(profile)
-            for attribute_name in profile_attributes.keys():
+            for attribute_name in profile_attributes:
                 if attribute_name not in dictionary_attributes:
                     raise SchemaException(
                         f'Attribute "{attribute_name}" in base schema profile'
@@ -550,7 +550,7 @@ class SchemaCompiler:
             for profile_name, profile in extension.profiles.items():
                 profile = j_object(profile)
                 profile_attributes = item_attributes(profile)
-                for attribute_name in profile_attributes.keys():
+                for attribute_name in profile_attributes:
                     if (
                         attribute_name not in base_dictionary_attributes
                         and attribute_name not in ext_dictionary_attributes
@@ -756,8 +756,8 @@ class SchemaCompiler:
     def _resolve_extension_includes(self, extensions: list[Extension]) -> None:
         for extension in extensions:
 
-            def path_resolver(file_name: str) -> Path:
-                return self._resolve_extension_include_path(extension, file_name)
+            def path_resolver(file_name: str, ext: Extension = extension) -> Path:
+                return self._resolve_extension_include_path(file_name, ext)
 
             for cls in extension.classes.values():
                 cls = j_object(cls)
@@ -786,7 +786,7 @@ class SchemaCompiler:
                 self._resolve_item_includes(obj_patch, context, path_resolver)
 
     def _resolve_extension_include_path(
-        self, extension: Extension, file_name: str
+        self, file_name: str, extension: Extension
     ) -> Path:
         extension_path = extension.base_path / file_name
         if extension_path.is_file():
@@ -2765,14 +2765,15 @@ class SchemaCompiler:
                     attribute_type_name,
                 )
 
-        if "is_array" in attribute:
-            if attribute["is_array"] != dict_attribute.get("is_array"):
-                raise SchemaException(
-                    f'Attribute "{attribute_name}" in {kind} "{item_name}"'
-                    f' has "is_array" with value {attribute.get("is_array")} that does'
-                    f" not match dictionary attribute value of"
-                    f" {dict_attribute.get('is_array')}"
-                )
+        if "is_array" in attribute and attribute["is_array"] != dict_attribute.get(
+            "is_array"
+        ):
+            raise SchemaException(
+                f'Attribute "{attribute_name}" in {kind} "{item_name}"'
+                f' has "is_array" with value {attribute.get("is_array")} that does'
+                f" not match dictionary attribute value of"
+                f" {dict_attribute.get('is_array')}"
+            )
 
         # TODO: could also check other type constraints
 

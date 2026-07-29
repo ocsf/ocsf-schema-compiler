@@ -5,12 +5,13 @@ from sys import stderr
 from typing import override
 
 from diff import (  # pyright: ignore[reportImplicitRelativeImport]
+    MISSING,
+    DiffDictKeys,
+    DiffValue,
     diff_objects,
     formatted_diffs,
-    DiffValue,
-    DiffDictKeys,
-    MISSING,
 )
+
 from ocsf_schema_compiler.compiler import SchemaCompiler
 from ocsf_schema_compiler.jsonish import JObject
 from ocsf_schema_compiler.structured_read import read_json_object_zstandard_file
