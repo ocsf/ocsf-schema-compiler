@@ -1957,7 +1957,9 @@ class SchemaCompiler:
                     replacement = self._find_class_or_object(base_name)
                     if replacement is None:
                         continue
-                    self._add_supersedes_marker(replacement, deprecated_name, deprecated)
+                    self._add_supersedes_marker(
+                        replacement, deprecated_name, deprecated
+                    )
 
     def _add_enum_value_supersedes(self) -> None:
         """
@@ -2020,8 +2022,7 @@ class SchemaCompiler:
         put_non_none(entry, "since", deprecated.get("since"))
         supersedes = j_array(target.setdefault("_supersedes", []))
         if not any(
-            j_object(existing).get("type") == deprecated_name
-            for existing in supersedes
+            j_object(existing).get("type") == deprecated_name for existing in supersedes
         ):
             supersedes.append(entry)
             self._sort_supersedes(supersedes)

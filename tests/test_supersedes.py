@@ -1,15 +1,20 @@
+# These tests exercise the individual reverse-reference passes directly, which are
+# internal to SchemaCompiler.
+# pyright: reportPrivateUsage=false
+
 import unittest
 from pathlib import Path
 
 from ocsf_schema_compiler.compiler import SchemaCompiler
-from ocsf_schema_compiler.jsonish import JObject
+from ocsf_schema_compiler.jsonish import JObject, j_array, j_object, j_string
 
 BASE_DIR = Path(__file__).parent
 
 
 def _make_compiler(browser_mode: bool) -> SchemaCompiler:
-    # The reverse-reference pass operates on self._dictionary directly, so a schema
-    # path is only needed to satisfy the constructor; compile() is never called.
+    # The reverse-reference passes operate on the compiler's dictionary, classes, and
+    # objects directly, so a schema path is only needed to satisfy the constructor;
+    # compile() is never called.
     return SchemaCompiler(
         Path(BASE_DIR, "uncompiled-schemas/ocsf-schema-v1.6.0"),
         browser_mode=browser_mode,
@@ -20,8 +25,24 @@ def _dictionary(attributes: JObject) -> JObject:
     return {"attributes": attributes, "types": {"attributes": {}}}
 
 
-class TestSupersedes(unittest.TestCase):
-    def test_reverse_marker_added_to_replacement(self):
+def _definition(container: JObject, name: str) -> JObject:
+    return j_object(container[name])
+
+
+def _attribute(item: JObject, name: str) -> JObject:
+    return j_object(j_object(item["attributes"])[name])
+
+
+def _supersedes(target: JObject) -> list[JObject]:
+    return [j_object(entry) for entry in j_array(target["_supersedes"])]
+
+
+def _superseded_names(target: JObject) -> list[str]:
+    return [j_string(entry["type"]) for entry in _supersedes(target)]
+
+
+class TestDictionaryAttributeSupersedes(unittest.TestCase):
+    def test_reverse_marker_added_to_replacement(self) -> None:
         compiler = _make_compiler(browser_mode=True)
         compiler._dictionary = _dictionary(
             {
@@ -39,14 +60,15 @@ class TestSupersedes(unittest.TestCase):
 
         compiler._add_dictionary_attribute_supersedes()
 
-        attributes = compiler._dictionary["attributes"]
-        self.assertNotIn("_supersedes", attributes["app"])
+        attributes = j_object(compiler._dictionary["attributes"])
+        # The deprecated attribute itself is not marked.
+        self.assertNotIn("_supersedes", _definition(attributes, "app"))
         self.assertEqual(
-            attributes["application"]["_supersedes"],
+            _supersedes(_definition(attributes, "application")),
             [{"type": "app", "since": "1.9.0"}],
         )
 
-    def test_multiple_replacements(self):
+    def test_multiple_replacements(self) -> None:
         compiler = _make_compiler(browser_mode=True)
         compiler._dictionary = _dictionary(
             {
@@ -65,17 +87,17 @@ class TestSupersedes(unittest.TestCase):
 
         compiler._add_dictionary_attribute_supersedes()
 
-        attributes = compiler._dictionary["attributes"]
+        attributes = j_object(compiler._dictionary["attributes"])
         self.assertEqual(
-            attributes["model"]["_supersedes"],
+            _supersedes(_definition(attributes, "model")),
             [{"type": "cpu_type", "since": "1.9.0"}],
         )
         self.assertEqual(
-            attributes["vendor_name"]["_supersedes"],
+            _supersedes(_definition(attributes, "vendor_name")),
             [{"type": "cpu_type", "since": "1.9.0"}],
         )
 
-    def test_aggregates_multiple_deprecated_onto_one_replacement(self):
+    def test_aggregates_multiple_deprecated_onto_one_replacement(self) -> None:
         compiler = _make_compiler(browser_mode=True)
         compiler._dictionary = _dictionary(
             {
@@ -101,11 +123,14 @@ class TestSupersedes(unittest.TestCase):
 
         compiler._add_dictionary_attribute_supersedes()
 
-        supersedes = compiler._dictionary["attributes"]["related_cwes"]["_supersedes"]
+        attributes = j_object(compiler._dictionary["attributes"])
         # Sorted by deprecated attribute name.
-        self.assertEqual([entry["type"] for entry in supersedes], ["cwe_uid", "cwe_url"])
+        self.assertEqual(
+            _superseded_names(_definition(attributes, "related_cwes")),
+            ["cwe_uid", "cwe_url"],
+        )
 
-    def test_dotted_path_anchors_on_base_attribute(self):
+    def test_dotted_path_anchors_on_base_attribute(self) -> None:
         compiler = _make_compiler(browser_mode=True)
         compiler._dictionary = _dictionary(
             {
@@ -123,9 +148,12 @@ class TestSupersedes(unittest.TestCase):
 
         compiler._add_dictionary_attribute_supersedes()
 
-        self.assertIn("_supersedes", compiler._dictionary["attributes"]["email"])
+        attributes = j_object(compiler._dictionary["attributes"])
+        self.assertEqual(
+            _superseded_names(_definition(attributes, "email")), ["email_uid"]
+        )
 
-    def test_unresolvable_replacement_is_skipped(self):
+    def test_unresolvable_replacement_is_skipped(self) -> None:
         compiler = _make_compiler(browser_mode=True)
         compiler._dictionary = _dictionary(
             {
@@ -140,15 +168,14 @@ class TestSupersedes(unittest.TestCase):
             }
         )
 
-        # finding_info is not a dictionary attribute here, so there is nothing to anchor
-        # the reverse marker on. This must not raise.
+        # finding_info is not a dictionary attribute here, so there is nothing to
+        # anchor the reverse marker on. This must not raise.
         compiler._add_dictionary_attribute_supersedes()
 
-        self.assertNotIn(
-            "_supersedes", compiler._dictionary["attributes"]["finding"]
-        )
+        attributes = j_object(compiler._dictionary["attributes"])
+        self.assertNotIn("_supersedes", _definition(attributes, "finding"))
 
-    def test_no_marker_without_browser_mode(self):
+    def test_no_marker_without_browser_mode(self) -> None:
         compiler = _make_compiler(browser_mode=False)
         compiler._dictionary = _dictionary(
             {
@@ -166,11 +193,10 @@ class TestSupersedes(unittest.TestCase):
 
         compiler._add_dictionary_attribute_supersedes()
 
-        self.assertNotIn(
-            "_supersedes", compiler._dictionary["attributes"]["application"]
-        )
+        attributes = j_object(compiler._dictionary["attributes"])
+        self.assertNotIn("_supersedes", _definition(attributes, "application"))
 
-    def test_deprecated_without_superseded_by_is_ignored(self):
+    def test_deprecated_without_superseded_by_is_ignored(self) -> None:
         compiler = _make_compiler(browser_mode=True)
         compiler._dictionary = _dictionary(
             {
@@ -187,10 +213,12 @@ class TestSupersedes(unittest.TestCase):
 
         compiler._add_dictionary_attribute_supersedes()
 
-        self.assertNotIn("_supersedes", compiler._dictionary["attributes"]["other"])
+        attributes = j_object(compiler._dictionary["attributes"])
+        self.assertNotIn("_supersedes", _definition(attributes, "other"))
 
-    def test_empty_superseded_by_creates_no_marker(self):
-        # An empty superseded_by means "removed with no replacement": no reverse marker.
+    def test_empty_superseded_by_creates_no_marker(self) -> None:
+        # An empty superseded_by means "removed with no replacement": no reverse
+        # marker is created anywhere.
         compiler = _make_compiler(browser_mode=True)
         compiler._dictionary = _dictionary(
             {
@@ -208,12 +236,13 @@ class TestSupersedes(unittest.TestCase):
 
         compiler._add_dictionary_attribute_supersedes()
 
-        self.assertNotIn("_supersedes", compiler._dictionary["attributes"]["other"])
-        self.assertNotIn("_supersedes", compiler._dictionary["attributes"]["removed"])
+        attributes = j_object(compiler._dictionary["attributes"])
+        self.assertNotIn("_supersedes", _definition(attributes, "other"))
+        self.assertNotIn("_supersedes", _definition(attributes, "removed"))
 
 
 class TestLocalAttributeSupersedes(unittest.TestCase):
-    def test_sibling_replacement_in_same_item(self):
+    def test_replacement_in_same_item(self) -> None:
         compiler = _make_compiler(browser_mode=True)
         compiler._classes = {
             "user_access": {
@@ -234,18 +263,15 @@ class TestLocalAttributeSupersedes(unittest.TestCase):
 
         compiler._add_local_attribute_supersedes()
 
-        resources = compiler._classes["user_access"]["attributes"]["resources"]
+        user_access = _definition(compiler._classes, "user_access")
         self.assertEqual(
-            resources["_supersedes"],
+            _supersedes(_attribute(user_access, "resources")),
             [{"type": "resource", "since": "1.5.0"}],
         )
         # The deprecated attribute itself is not marked.
-        self.assertNotIn(
-            "_supersedes",
-            compiler._classes["user_access"]["attributes"]["resource"],
-        )
+        self.assertNotIn("_supersedes", _attribute(user_access, "resource"))
 
-    def test_non_sibling_replacement_is_skipped(self):
+    def test_replacement_outside_the_item_is_skipped(self) -> None:
         compiler = _make_compiler(browser_mode=True)
         compiler._classes = {
             "email_activity": {
@@ -263,15 +289,14 @@ class TestLocalAttributeSupersedes(unittest.TestCase):
         compiler._objects = {}
         compiler._profiles = {}
 
-        # email is not a sibling attribute here, so nothing local to anchor on.
+        # email is not declared in this class, so there is nothing local to anchor on.
+        # A local deprecation must not leak a marker into another context.
         compiler._add_local_attribute_supersedes()
 
-        self.assertNotIn(
-            "_supersedes",
-            compiler._classes["email_activity"]["attributes"]["email_uid"],
-        )
+        email_activity = _definition(compiler._classes, "email_activity")
+        self.assertNotIn("_supersedes", _attribute(email_activity, "email_uid"))
 
-    def test_no_marker_without_browser_mode(self):
+    def test_no_marker_without_browser_mode(self) -> None:
         compiler = _make_compiler(browser_mode=False)
         compiler._classes = {
             "c": {
@@ -293,18 +318,18 @@ class TestLocalAttributeSupersedes(unittest.TestCase):
         compiler._add_local_attribute_supersedes()
 
         self.assertNotIn(
-            "_supersedes", compiler._classes["c"]["attributes"]["new_attr"]
+            "_supersedes", _attribute(_definition(compiler._classes, "c"), "new_attr")
         )
 
 
 class TestItemSupersedes(unittest.TestCase):
-    def test_class_supersedes_class(self):
+    def test_class_supersedes_class(self) -> None:
         compiler = _make_compiler(browser_mode=True)
         compiler._classes = {
             "user_access": {
                 "attributes": {},
                 "@deprecated": {
-                    "message": "Use User Management instead.",
+                    "message": "Use user_management instead.",
                     "since": "1.6.0",
                     "superseded_by": ["user_management"],
                 },
@@ -316,17 +341,17 @@ class TestItemSupersedes(unittest.TestCase):
         compiler._add_item_supersedes()
 
         self.assertEqual(
-            compiler._classes["user_management"]["_supersedes"],
+            _supersedes(_definition(compiler._classes, "user_management")),
             [{"type": "user_access", "since": "1.6.0"}],
         )
 
-    def test_multiple_deprecated_classes_aggregate_on_replacement(self):
+    def test_multiple_deprecated_classes_aggregate_on_replacement(self) -> None:
         compiler = _make_compiler(browser_mode=True)
         compiler._classes = {
             "file_query": {
                 "attributes": {},
                 "@deprecated": {
-                    "message": "Use Live Evidence Info.",
+                    "message": "Use evidence_info instead.",
                     "since": "1.1.0",
                     "superseded_by": ["evidence_info"],
                 },
@@ -334,7 +359,7 @@ class TestItemSupersedes(unittest.TestCase):
             "job_query": {
                 "attributes": {},
                 "@deprecated": {
-                    "message": "Use Live Evidence Info.",
+                    "message": "Use evidence_info instead.",
                     "since": "1.1.0",
                     "superseded_by": ["evidence_info"],
                 },
@@ -346,18 +371,18 @@ class TestItemSupersedes(unittest.TestCase):
         compiler._add_item_supersedes()
 
         self.assertEqual(
-            [e["type"] for e in compiler._classes["evidence_info"]["_supersedes"]],
+            _superseded_names(_definition(compiler._classes, "evidence_info")),
             ["file_query", "job_query"],
         )
 
-    def test_object_supersedes_object(self):
+    def test_object_supersedes_object(self) -> None:
         compiler = _make_compiler(browser_mode=True)
         compiler._classes = {}
         compiler._objects = {
             "finding": {
                 "attributes": {},
                 "@deprecated": {
-                    "message": "Use finding_info.",
+                    "message": "Use finding_info instead.",
                     "since": "1.0.0",
                     "superseded_by": ["finding_info"],
                 },
@@ -368,17 +393,17 @@ class TestItemSupersedes(unittest.TestCase):
         compiler._add_item_supersedes()
 
         self.assertEqual(
-            compiler._objects["finding_info"]["_supersedes"],
+            _supersedes(_definition(compiler._objects, "finding_info")),
             [{"type": "finding", "since": "1.0.0"}],
         )
 
-    def test_unresolvable_replacement_is_skipped(self):
+    def test_unresolvable_replacement_is_skipped(self) -> None:
         compiler = _make_compiler(browser_mode=True)
         compiler._classes = {
             "security_finding": {
                 "attributes": {},
                 "@deprecated": {
-                    "message": "Use specific classes.",
+                    "message": "Use the specific finding classes instead.",
                     "since": "1.1.0",
                     "superseded_by": ["nonexistent_class"],
                 },
@@ -389,19 +414,46 @@ class TestItemSupersedes(unittest.TestCase):
         # Must not raise; no marker created anywhere.
         compiler._add_item_supersedes()
 
-        self.assertNotIn("_supersedes", compiler._classes["security_finding"])
+        self.assertNotIn(
+            "_supersedes", _definition(compiler._classes, "security_finding")
+        )
+
+    def test_no_marker_without_browser_mode(self) -> None:
+        compiler = _make_compiler(browser_mode=False)
+        compiler._classes = {
+            "user_access": {
+                "attributes": {},
+                "@deprecated": {
+                    "message": "Use user_management instead.",
+                    "since": "1.6.0",
+                    "superseded_by": ["user_management"],
+                },
+            },
+            "user_management": {"attributes": {}},
+        }
+        compiler._objects = {}
+
+        compiler._add_item_supersedes()
+
+        self.assertNotIn(
+            "_supersedes", _definition(compiler._classes, "user_management")
+        )
 
 
 class TestEnumValueSupersedes(unittest.TestCase):
-    def _compiler_with_enum(self, enum):
-        compiler = _make_compiler(browser_mode=True)
+    def _compiler_with_enum(
+        self, enum: JObject, browser_mode: bool = True
+    ) -> SchemaCompiler:
+        compiler = _make_compiler(browser_mode=browser_mode)
         compiler._classes = {}
-        compiler._objects = {
-            "reg_value": {"attributes": {"type_id": {"enum": enum}}}
-        }
+        compiler._objects = {"reg_value": {"attributes": {"type_id": {"enum": enum}}}}
         return compiler
 
-    def test_sibling_enum_value_replacement(self):
+    def _enum(self, compiler: SchemaCompiler) -> JObject:
+        reg_value = _definition(compiler._objects, "reg_value")
+        return j_object(_attribute(reg_value, "type_id")["enum"])
+
+    def test_replacement_value_in_same_enum(self) -> None:
         compiler = self._compiler_with_enum(
             {
                 "8": {"caption": "REG_QWORD"},
@@ -418,13 +470,15 @@ class TestEnumValueSupersedes(unittest.TestCase):
 
         compiler._add_enum_value_supersedes()
 
-        enum = compiler._objects["reg_value"]["attributes"]["type_id"]["enum"]
-        self.assertEqual(enum["8"]["_supersedes"], [{"type": "9", "since": "1.6.0"}])
+        enum = self._enum(compiler)
+        self.assertEqual(
+            _supersedes(_definition(enum, "8")), [{"type": "9", "since": "1.6.0"}]
+        )
         # The deprecated value itself is not marked.
-        self.assertNotIn("_supersedes", enum["9"])
+        self.assertNotIn("_supersedes", _definition(enum, "9"))
 
-    def test_non_sibling_reference_is_skipped(self):
-        # superseded_by names an attribute, not a sibling enum key.
+    def test_reference_outside_the_enum_is_skipped(self) -> None:
+        # superseded_by names an attribute rather than a value in the same enum.
         compiler = self._compiler_with_enum(
             {
                 "4": {
@@ -440,10 +494,9 @@ class TestEnumValueSupersedes(unittest.TestCase):
 
         compiler._add_enum_value_supersedes()
 
-        enum = compiler._objects["reg_value"]["attributes"]["type_id"]["enum"]
-        self.assertNotIn("_supersedes", enum["4"])
+        self.assertNotIn("_supersedes", _definition(self._enum(compiler), "4"))
 
-    def test_no_marker_without_browser_mode(self):
+    def test_no_marker_without_browser_mode(self) -> None:
         compiler = self._compiler_with_enum(
             {
                 "8": {"caption": "REG_QWORD"},
@@ -455,15 +508,14 @@ class TestEnumValueSupersedes(unittest.TestCase):
                         "superseded_by": ["8"],
                     },
                 },
-            }
+            },
+            browser_mode=False,
         )
-        compiler.browser_mode = False
 
         compiler._add_enum_value_supersedes()
 
-        enum = compiler._objects["reg_value"]["attributes"]["type_id"]["enum"]
-        self.assertNotIn("_supersedes", enum["8"])
+        self.assertNotIn("_supersedes", _definition(self._enum(compiler), "8"))
 
 
 if __name__ == "__main__":
-    unittest.main()
+    _ = unittest.main()
