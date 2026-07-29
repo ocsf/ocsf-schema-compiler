@@ -91,10 +91,13 @@ Deprecated definitions contain an `@deprecated` object:
 {
   "@deprecated": {
     "since": "1.5.0",
-    "message": "Use the replacement definition instead."
+    "message": "Use the replacement definition instead.",
+    "superseded_by": ["replacement"]
   }
 }
 ```
+
+`superseded_by` names the replacement definitions, if any. Entries are names rather than captions: an attribute or enumeration key in the same context, a class or object name, or a dotted path into one such as `email.uid`. An empty array means the definition was removed with no replacement.
 
 Deprecation metadata may occur on classes, objects, attributes, dictionary attributes, profiles, and enumeration entries.
 
@@ -423,6 +426,7 @@ Browser mode keeps the complete normal format and adds information in these broa
 - Top-level `browser_mode?`, `all_classes`, and `all_objects` properties. The `all_*` tables contain concise entries for all definitions, including hidden and abstract definitions that normal output omits.
 - Reverse `_links` from dictionary attributes, objects, and profiles to the classes or objects that use them. Link entries carry display and navigation details such as group, type, caption, attribute keys, extension, and deprecation status.
 - Attribute provenance such as `_source`, patch provenance such as `_patched_by_extensions` and `_patched_by_extension_ids`, observable-kind metadata in `_observable_kind`, and reverse enum-sibling information in `_sibling_of`.
+- Reverse `_supersedes` from a replacement definition back to the deprecated definitions that name it in their `@deprecated.superseded_by`. Each entry carries the deprecated definition's name in `type` and its `since` version, so the browser can show on a live definition which deprecated definition it replaces. Entries are sorted by `type` and are scoped to the context holding the deprecation, so a class- or object-local deprecation does not mark a replacement elsewhere.
 - Fully compiled profile attributes, which normal mode intentionally removes after merging them into classes and objects.
 
 Properties beginning with `_` and the browser-specific lookup tables are compiler UI metadata, not part of the event schema needed for ordinary validation, enrichment, or schema inspection.

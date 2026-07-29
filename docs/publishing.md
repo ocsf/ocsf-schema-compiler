@@ -1,4 +1,5 @@
 # Publishing ocsf-schema-compiler
+
 This project publishes the **ocsf-schema-compiler** package to PyPI. We can also manually publish to TestPyPI.
 
 This project uses [Flit](https://flit.pypa.io/) to build package distributions, but not for publishing. Publishing is done via GitHub releases, utilizing the [pypa/gh-action-pypi-publish](https://github.com/pypa/gh-action-pypi-publish) action.
@@ -10,16 +11,19 @@ The publishing flow requires the project's version to be bumped up, along with c
 We can also manually trigger a test publish that works the same way, except that it publishes to TestPyPI.
 
 ## Publishing step 1: update project version
+
 The version is defined in the `__version__` variable in [`src/ocsf_schema_compiler/__init__.py`](https://github.com/ocsf/ocsf-schema-compiler/blob/main/src/ocsf_schema_compiler/__init__.py).
 
 Updating the version requires a normal pull request.
 
 ## Publishing step 2 (optional): create git tag and test publish
+
 A Git tag must be created with the same version with a "v" prefix. This can be created during a release or beforehand via `git` on the command line.
 
 Creating a tag before release allows us to manually publish to TestPyPI at [ocsf-schema-compiler · TestPyPI](https://test.pypi.org/project/ocsf-schema-compiler/) using this repo's "Test publish package to TestPyPI" GitHub action defined in [`.github/workflows/test-publish.yaml`](https://github.com/ocsf/ocsf-schema-compiler/blob/main/.github/workflows/test-publish.yaml). The test-publish action requires the `testpypi` GitHub environment.
 
 To create a new tag on the command line, navigate to a local cloned of this repo's `main` branch (not a fork), then use commands similar to the following example for version 1.0.0:
+
 ```shell
 # Create a nice annotated tag with a message
 git tag v1.0.0 -a -m "Release version 1.0.0"
@@ -36,9 +40,11 @@ git push origin --tags
 To trigger the test publish action, run "Test publish package to TestPyPI" for the `main` branch from this repo's [Actions](https://github.com/ocsf/ocsf-schema-compiler/actions) page.
 
 ## Publishing step 3: release
+
 Create a new release with a tag or select a draft release on the [Releases](https://github.com/ocsf/ocsf-schema-compiler/releases) page, then click "Publish release". This will trigger the GitHub action in [`.github/workflows/publish.yaml`](https://github.com/ocsf/ocsf-schema-compiler/blob/main/.github/workflows/publish.yaml) that publishes the package to PyPI. The publish action requires the `pypi` GitHub environment.
 
 ## Optional: manually checking everything
+
 These steps are optional. The continuous integration and publish actions have this covered. However, for the paranoid, we can manually double-check everything locally.
 
 ```shell
@@ -55,7 +61,7 @@ source ./.venv/bin/activate
 # Running tests before installing anything ensure this remains true
 make tests
 
-python -m pip install basedpyright ruff flit
+python -m pip install ".[dev]" flit
 make lint
 make build-check
 ```

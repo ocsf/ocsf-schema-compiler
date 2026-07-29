@@ -1,39 +1,33 @@
 import logging
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, override
+from typing import override
 
 from ocsf_schema_compiler.exceptions import SchemaException
 from ocsf_schema_compiler.jsonish import (
-    JValue,
-    JObject,
     JArray,
-    j_object,
-    j_object_optional,
+    JObject,
+    JValue,
+    deep_copy_j_array,
+    deep_copy_j_object,
+    deep_merge,
     j_array,
     j_array_optional,
+    j_integer,
+    j_object,
+    j_object_optional,
     j_string,
     j_string_optional,
-    j_integer,
     json_type_from_value,
-    deep_copy_j_object,
-    deep_copy_j_array,
-    deep_merge,
     put_non_none,
 )
 from ocsf_schema_compiler.ocsf_utils import (
     is_hidden_class,
     is_hidden_object,
-    requirement_to_rank,
     rank_to_requirement,
-)
-from ocsf_schema_compiler.scoping import (
-    extension_scoped_category_uid,
-    category_scoped_class_uid,
-    class_uid_scoped_type_uid,
-    to_extension_scoped_name,
-    full_name,
+    requirement_to_rank,
 )
 from ocsf_schema_compiler.schema_structure import (
     category_definitions,
@@ -45,13 +39,19 @@ from ocsf_schema_compiler.schema_structure import (
     normalize_item,
     normalize_items,
 )
+from ocsf_schema_compiler.scoping import (
+    category_scoped_class_uid,
+    class_uid_scoped_type_uid,
+    extension_scoped_category_uid,
+    full_name,
+    to_extension_scoped_name,
+)
 from ocsf_schema_compiler.structured_read import (
     read_json_object_file,
-    read_structured_items,
     read_patchable_structured_items,
+    read_structured_items,
 )
 from ocsf_schema_compiler.utils import pretty_json_encode
-
 
 logger = logging.getLogger(__name__)
 
@@ -214,6 +214,11 @@ class SchemaCompiler:
 
         self._finish_attributes()
 
+        if self.browser_mode:
+            self._add_local_attribute_supersedes()
+            self._add_item_supersedes()
+            self._add_enum_value_supersedes()
+
         output = self._create_compile_output()
 
         logger.info("Compiled schema base version: %s", self._version)
@@ -328,7 +333,7 @@ class SchemaCompiler:
         for profile_name, profile in self._profiles.items():
             profile = j_object(profile)
             profile_attributes = item_attributes(profile)
-            for attribute_name in profile_attributes.keys():
+            for attribute_name in profile_attributes:
                 if attribute_name not in dictionary_attributes:
                     raise SchemaException(
                         f'Attribute "{attribute_name}" in base schema profile'
@@ -545,7 +550,7 @@ class SchemaCompiler:
             for profile_name, profile in extension.profiles.items():
                 profile = j_object(profile)
                 profile_attributes = item_attributes(profile)
-                for attribute_name in profile_attributes.keys():
+                for attribute_name in profile_attributes:
                     if (
                         attribute_name not in base_dictionary_attributes
                         and attribute_name not in ext_dictionary_attributes
@@ -751,8 +756,8 @@ class SchemaCompiler:
     def _resolve_extension_includes(self, extensions: list[Extension]) -> None:
         for extension in extensions:
 
-            def path_resolver(file_name: str) -> Path:
-                return self._resolve_extension_include_path(extension, file_name)
+            def path_resolver(file_name: str, ext: Extension = extension) -> Path:
+                return self._resolve_extension_include_path(file_name, ext)
 
             for cls in extension.classes.values():
                 cls = j_object(cls)
@@ -781,7 +786,7 @@ class SchemaCompiler:
                 self._resolve_item_includes(obj_patch, context, path_resolver)
 
     def _resolve_extension_include_path(
-        self, extension: Extension, file_name: str
+        self, file_name: str, extension: Extension
     ) -> Path:
         extension_path = extension.base_path / file_name
         if extension_path.is_file():
@@ -1845,8 +1850,195 @@ class SchemaCompiler:
             self._add_common_dictionary_attribute_links()
             self._add_class_dictionary_attribute_links()
             self._add_object_dictionary_attribute_links()
+            self._add_dictionary_attribute_supersedes()
         self._enrich_and_validate_dictionary_types()
         self._add_datetime_sibling_dictionary_attributes()
+
+    def _add_dictionary_attribute_supersedes(self) -> None:
+        """
+        Build the reverse of the "@deprecated.superseded_by" references for
+        dictionary attributes. For each deprecated dictionary attribute that names
+        its replacement(s), attach a "_supersedes" marker onto the replacement's
+        dictionary attribute so the schema browser can show, on the live attribute,
+        which deprecated attribute it replaces. This runs before attributes are
+        merged into classes/objects (in _finish_attributes), so the marker
+        propagates to those copies too.
+        """
+        if not self.browser_mode:
+            return
+
+        dictionary_attributes = dictionary_attribute_definitions(self._dictionary)
+        for deprecated_name, deprecated_attribute in dictionary_attributes.items():
+            deprecated_attribute = j_object(deprecated_attribute)
+            deprecated = j_object_optional(deprecated_attribute.get("@deprecated"))
+            if deprecated is None:
+                continue
+            superseded_by = j_array_optional(deprecated.get("superseded_by"))
+            if not superseded_by:
+                continue
+
+            for reference in superseded_by:
+                base_name = self._supersedes_base_name(j_string(reference))
+                replacement = j_object_optional(dictionary_attributes.get(base_name))
+                if replacement is None:
+                    # The replacement is not a dictionary attribute (for example a
+                    # bare object name). There is no dictionary attribute to anchor
+                    # the reverse marker on, so skip it.
+                    continue
+                self._add_supersedes_marker(replacement, deprecated_name, deprecated)
+
+    def _add_local_attribute_supersedes(self) -> None:
+        """
+        Build the reverse of the "@deprecated.superseded_by" references for
+        attributes deprecated only within a specific class, object, or profile
+        (as opposed to globally in the dictionary). For each such deprecated
+        attribute, attach a "_supersedes" marker onto the replacement attribute in
+        the same item when the replacement is a sibling attribute there.
+
+        This runs after _finish_attributes, so item attributes carry their fully
+        resolved (merged) "@deprecated" annotations. Markers already propagated from
+        the dictionary pass are preserved; _add_supersedes_marker dedupes by name.
+        """
+        if not self.browser_mode:
+            return
+
+        for items in (self._classes, self._objects, self._profiles):
+            for item in items.values():
+                attributes = item_attributes(j_object(item))
+                for deprecated_name, deprecated_attribute in attributes.items():
+                    deprecated_attribute = j_object(deprecated_attribute)
+                    deprecated = j_object_optional(
+                        deprecated_attribute.get("@deprecated")
+                    )
+                    if deprecated is None:
+                        continue
+                    superseded_by = j_array_optional(deprecated.get("superseded_by"))
+                    if not superseded_by:
+                        continue
+
+                    for reference in superseded_by:
+                        base_name = self._supersedes_base_name(j_string(reference))
+                        replacement = j_object_optional(attributes.get(base_name))
+                        if replacement is None:
+                            # The replacement is not a sibling attribute in this item
+                            # (for example a dotted path into another object). There
+                            # is nothing local to anchor the reverse marker on.
+                            continue
+                        self._add_supersedes_marker(
+                            replacement, deprecated_name, deprecated
+                        )
+
+    def _add_item_supersedes(self) -> None:
+        """
+        Build the reverse of the "@deprecated.superseded_by" references for whole
+        classes and objects. For each deprecated class or object that names its
+        replacement class or object, attach an item-level "_supersedes" marker onto
+        the replacement so the schema browser can show, on the live class or object,
+        which deprecated class or object it replaces.
+        """
+        if not self.browser_mode:
+            return
+
+        for items in (self._classes, self._objects):
+            for deprecated_name, item in items.items():
+                item = j_object(item)
+                deprecated = j_object_optional(item.get("@deprecated"))
+                if deprecated is None:
+                    continue
+                superseded_by = j_array_optional(deprecated.get("superseded_by"))
+                if not superseded_by:
+                    continue
+
+                for reference in superseded_by:
+                    # A whole-item replacement may be named as a bare class/object
+                    # name ("finding_info") or as a path into one ("compliance.checks").
+                    # Anchor the reverse marker on the replacement class/object.
+                    base_name = self._supersedes_base_name(j_string(reference))
+                    replacement = self._find_class_or_object(base_name)
+                    if replacement is None:
+                        continue
+                    self._add_supersedes_marker(
+                        replacement, deprecated_name, deprecated
+                    )
+
+    def _add_enum_value_supersedes(self) -> None:
+        """
+        Build the reverse of the "@deprecated.superseded_by" references for enum
+        values. For each deprecated enum value that names its replacement value (by
+        enum key) within the same attribute, attach a "_supersedes" marker onto the
+        replacement enum value so the schema browser can show, on the live value,
+        which deprecated value it replaces.
+
+        Runs after _finish_attributes, so class/object attributes carry their fully
+        resolved enums. Only same-attribute (sibling) enum-value replacements are
+        handled; references that are not sibling enum keys are skipped.
+        """
+        if not self.browser_mode:
+            return
+
+        for items in (self._classes, self._objects):
+            for item in items.values():
+                attributes = item_attributes(j_object(item))
+                for attribute in attributes.values():
+                    enum = j_object_optional(j_object(attribute).get("enum"))
+                    if enum is None:
+                        continue
+                    self._add_enum_supersedes_for_attribute(enum)
+
+    def _add_enum_supersedes_for_attribute(self, enum: JObject) -> None:
+        for deprecated_key, enum_value in enum.items():
+            enum_value = j_object(enum_value)
+            deprecated = j_object_optional(enum_value.get("@deprecated"))
+            if deprecated is None:
+                continue
+            superseded_by = j_array_optional(deprecated.get("superseded_by"))
+            if not superseded_by:
+                continue
+
+            for reference in superseded_by:
+                replacement_key = j_string(reference)
+                replacement = j_object_optional(enum.get(replacement_key))
+                if replacement is None:
+                    # The replacement is not a sibling enum value of this attribute
+                    # (for example an attribute name). Nothing local to anchor on.
+                    continue
+                self._add_supersedes_marker(replacement, deprecated_key, deprecated)
+
+    def _find_class_or_object(self, name: str) -> JObject | None:
+        """Return the class or object definition with the given name, if any."""
+        found = self._classes.get(name)
+        if found is None:
+            found = self._objects.get(name)
+        return j_object_optional(found)
+
+    def _add_supersedes_marker(
+        self, target: JObject, deprecated_name: str, deprecated: JObject
+    ) -> None:
+        """
+        Attach a "_supersedes" entry naming deprecated_name onto target (a
+        replacement attribute, class, or object definition), deduped by name.
+        """
+        entry: JObject = {"type": deprecated_name}
+        put_non_none(entry, "since", deprecated.get("since"))
+        supersedes = j_array(target.setdefault("_supersedes", []))
+        if not any(
+            j_object(existing).get("type") == deprecated_name for existing in supersedes
+        ):
+            supersedes.append(entry)
+            self._sort_supersedes(supersedes)
+
+    @staticmethod
+    def _supersedes_base_name(reference: str) -> str:
+        """
+        Reduce a superseded_by reference to the attribute it anchors on: the first
+        path segment before a "." or "[". For example "email.uid" -> "email" and
+        "cpu_info_list[*].cores" -> "cpu_info_list".
+        """
+        return reference.split(".", 1)[0].split("[", 1)[0]
+
+    @staticmethod
+    def _sort_supersedes(supersedes: JArray) -> None:
+        supersedes.sort(key=lambda entry: j_string(j_object(entry)["type"]))
 
     def _add_common_dictionary_attribute_links(self) -> None:
         if not self.browser_mode:
@@ -2573,14 +2765,15 @@ class SchemaCompiler:
                     attribute_type_name,
                 )
 
-        if "is_array" in attribute:
-            if attribute["is_array"] != dict_attribute.get("is_array"):
-                raise SchemaException(
-                    f'Attribute "{attribute_name}" in {kind} "{item_name}"'
-                    f' has "is_array" with value {attribute.get("is_array")} that does'
-                    f" not match dictionary attribute value of"
-                    f" {dict_attribute.get('is_array')}"
-                )
+        if "is_array" in attribute and attribute["is_array"] != dict_attribute.get(
+            "is_array"
+        ):
+            raise SchemaException(
+                f'Attribute "{attribute_name}" in {kind} "{item_name}"'
+                f' has "is_array" with value {attribute.get("is_array")} that does'
+                f" not match dictionary attribute value of"
+                f" {dict_attribute.get('is_array')}"
+            )
 
         # TODO: could also check other type constraints
 

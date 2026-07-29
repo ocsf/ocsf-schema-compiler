@@ -61,9 +61,11 @@ class TestSchemaStructure(unittest.TestCase):
             {"types": {"attributes": "not an object"}},
         ]
         for dictionary in dictionaries:
-            with self.subTest(dictionary=dictionary):
-                with self.assertRaisesRegex(SchemaException, "to be an object"):
-                    normalize_dictionary(dictionary, "dictionary")
+            with (
+                self.subTest(dictionary=dictionary),
+                self.assertRaisesRegex(SchemaException, "to be an object"),
+            ):
+                normalize_dictionary(dictionary, "dictionary")
 
     def test_normalize_items_adds_attributes_to_every_item(self):
         items: JObject = {"first": {}, "second": {"attributes": {}}}

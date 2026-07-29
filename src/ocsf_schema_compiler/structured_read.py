@@ -1,15 +1,16 @@
 import json
 import os
+from collections.abc import Callable
 from compression import zstd
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from ocsf_schema_compiler.exceptions import SchemaException
 from ocsf_schema_compiler.jsonish import (
     JObject,
-    json_type_from_value,
     j_object,
     j_string,
+    json_type_from_value,
 )
 
 
