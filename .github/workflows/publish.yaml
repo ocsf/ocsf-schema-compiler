@@ -8,50 +8,40 @@ permissions:
   contents: read
 
 jobs:
-  pre-check:
-    runs-on: ubuntu-latest
-
-    steps:
-    - name: Checkout
-      uses: actions/checkout@v6
-      with:
-        fetch-depth: 0  # needed to get all tags for pre-publish-check
-
-    - name: Setup Python
-      uses: actions/setup-python@v6
-      with:
-        python-version: "3.14"
-
-    - name: Pre-check
-      run: |
-        make pre-publish-check
-
   build-release:
     runs-on: ubuntu-latest
     steps:
     - name: Checkout
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
+
+    - name: Update package version from tag
+      run: scripts/update-version.sh src/ocsf_schema_compiler/__init__.py "${{ github.ref_name }}"
 
     - name: Setup Python
-      uses: actions/setup-python@v6
+      uses: actions/setup-python@v7
       with:
         python-version: "3.14"
 
     - name: Build release distributions
       run: |
-        python -m pip install flit
+        python -m pip install -U flit
         flit build
 
+    - name: Check package version update
+      run: |
+        flit install
+        # If this fails, something went wrong updating the version
+        ocsf-schema-compiler -v
+
     - name: Upload distributions
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: release-dists
         path: dist/
 
   publish-to-pypi:
+    needs: build-release
     runs-on: ubuntu-latest
-    needs:
-      - build-release
     permissions:
       # IMPORTANT: this permission is mandatory for trusted publishing
       id-token: write
@@ -73,7 +63,7 @@ jobs:
 
     steps:
       - name: Retrieve release distributions
-        uses: actions/download-artifact@v5
+        uses: actions/download-artifact@v8
         with:
           name: release-dists
           path: dist/
