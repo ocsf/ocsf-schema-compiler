@@ -121,7 +121,11 @@ To run local development changes, use of a virtual environment is recommended th
 python3 -m venv .venv
 source ./.venv/bin/activate
 
-# Install project as an editable requirement ("develop mode")
+# The pip-update make target updates the dev dependencies and
+# install the project as and an editable requirement ("develop mode")
+make pip-update
+
+# Or only install the project as an editable requirement
 python -m pip install -e .
 ```
 
@@ -141,7 +145,7 @@ python3 -m venv .venv
 # Activate it
 source ./.venv/bin/activate
 # Install Flit
-python -m pip install flit
+python -m pip install -U flit
 
 # Run the build check
 make build-check
