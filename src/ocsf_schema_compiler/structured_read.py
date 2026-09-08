@@ -35,7 +35,7 @@ def _load_json_object_file(
 
 
 def read_json_object_file(path: Path) -> JObject:
-    with open(path) as f:
+    with open(path, encoding="UTF-8") as f:
         return _load_json_object_file(path, f)
 
 
