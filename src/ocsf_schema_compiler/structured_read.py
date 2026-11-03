@@ -58,8 +58,9 @@ def read_structured_items(
     # event class JSON files
     item_path = base_path / kind
     items: JObject = {}
-    for dir_path, _dir_names, file_names in os.walk(item_path, topdown=False):
-        for file_name in file_names:
+    # Sort directories and files so output does not depend on filesystem order.
+    for dir_path, _dir_names, file_names in sorted(os.walk(item_path, topdown=False)):
+        for file_name in sorted(file_names):
             if file_name.endswith(".json"):
                 file_path = Path(dir_path, file_name)
                 obj = read_json_object_file(file_path)
@@ -114,8 +115,9 @@ def read_patchable_structured_items(
     item_path = base_path / kind
     items: JObject = {}
     patches: JObject = {}
-    for dir_path, _dir_names, file_names in os.walk(item_path, topdown=False):
-        for file_name in file_names:
+    # Sort directories and files so output does not depend on filesystem order.
+    for dir_path, _dir_names, file_names in sorted(os.walk(item_path, topdown=False)):
+        for file_name in sorted(file_names):
             if file_name.endswith(".json"):
                 file_path = Path(dir_path, file_name)
                 obj = read_json_object_file(file_path)
